@@ -228,6 +228,33 @@ a=fmtp:101 0-15
     end
 
     #
+    # Send a REGISTER message with the specified credentials with expires = 0
+    #
+    # @param [String] user the user to register as. May be given as a full SIP URI (sip:user@domain.com), in email-address format (user@domain.com) or as a simple username ('user'). If no domain is supplied, the source IP from SIPp will be used.
+    # @param [optional, String, nil] password the password to authenticate with.
+    # @param [Hash] opts A set of options to modify the message
+    #
+    # @example Register with authentication
+    #   s.register 'frank@there.com', 'abc123'
+    #
+    # @example Register without authentication or a domain
+    #   s.register 'frank'
+    #
+    def unregister(user, password = nil, opts = {})
+      send_opts = opts.dup
+      send_opts[:retrans] ||= DEFAULT_RETRANS
+      user, domain = parse_user user
+      if password
+        send unregister_message(domain, user), send_opts
+        recv opts.merge(response: 401, auth: true, optional: false)
+        send unregister_auth(domain, user, password), send_opts
+        receive_ok opts.merge(optional: false)
+      else
+        send unregister_message(domain, user), send_opts
+      end
+    end
+
+    #
     # Expect to receive a SIP INVITE
     #
     # @param [Hash] opts A set of options containing SIPp <recv> element attributes
@@ -790,6 +817,41 @@ Content-Length: 0
     def compile_media
       raise "Media not started" unless @media
       @media.compile!
+    end
+
+    def unregister_message(domain, user)
+      <<-BODY
+
+REGISTER sip:#{domain} SIP/2.0
+Via: SIP/2.0/[transport] #{@adv_ip}:[local_port];branch=[branch]
+From: <sip:#{user}@#{domain}>;tag=[call_number]
+To: <sip:#{user}@#{domain}>
+Call-ID: [call_id]
+CSeq: [cseq] REGISTER
+Contact: <sip:#{@from_user}@#{@adv_ip}:[local_port];transport=[transport]>
+Max-Forwards: 10
+Expires: 0
+User-Agent: #{USER_AGENT}
+Content-Length: 0
+      BODY
+    end
+
+    def unregister_auth(domain, user, password)
+      <<-AUTH
+
+REGISTER sip:#{domain} SIP/2.0
+Via: SIP/2.0/[transport] #{@adv_ip}:[local_port];branch=[branch]
+From: <sip:#{user}@#{domain}>;tag=[call_number]
+To: <sip:#{user}@#{domain}>
+Call-ID: [call_id]
+CSeq: [cseq] REGISTER
+Contact: <sip:#{@from_user}@#{@adv_ip}:[local_port];transport=[transport]>
+Max-Forwards: 20
+Expires: 0
+[authentication username=#{user} password=#{password}]
+User-Agent: #{USER_AGENT}
+Content-Length: 0
+      AUTH
     end
 
     def register_message(domain, user)
